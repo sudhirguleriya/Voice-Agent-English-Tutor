@@ -38,6 +38,8 @@
         <div class="settings">
           <label title="Shows fixes and ways to finish your sentence while you are still speaking (Chrome/Edge)"><input type="checkbox" id="liveToggle"> Live suggestions while I speak</label>
           <label><input type="checkbox" id="speakToggle"> Speak corrections aloud</label>
+          <label title="AI voice: gpt-audio-mini, then Fish Audio S2 Pro if unavailable, then the browser voice">Voice
+            <select id="voiceSel"><option value="ai">AI voice</option><option value="browser">Browser voice</option></select></label>
           <label>Pause before analysing
             <input type="range" id="silence" min="600" max="2500" step="100" value="1100">
             <span id="silenceVal">1.1s</span></label>

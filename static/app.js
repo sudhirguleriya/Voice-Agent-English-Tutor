@@ -306,7 +306,61 @@ async function pump() {
 }
 
 // ---------------------------------------------------------------- speech output
-function say(text, rate = 0.95) {
+// AI voice (server: gpt-audio-mini -> Fish Audio S2 Pro), cached per sentence; browser voice if that fails or is turned off.
+cfg.voice = store.get("voice", "ai");
+$("#voiceSel").value = cfg.voice;
+$("#voiceSel").onchange = (e) => store.set("voice", (cfg.voice = e.target.value));
+let serverVoice = true;          // set from /api/health
+const clipCache = new Map();     // text -> object URL
+let nowPlaying = null, voiceWarned = false;
+
+function stopSpeech() {
+  try { speechSynthesis.cancel(); } catch {}
+  if (nowPlaying) { nowPlaying.pause(); nowPlaying = null; }
+}
+
+async function say(text, rate = 0.95) {
+  stopSpeech();
+  if (cfg.voice === "ai" && serverVoice) {
+    try { return await playAi(text, rate); }
+    catch (e) {
+      if (!voiceWarned) { voiceWarned = true; showError("AI voice unavailable, using the browser voice. " + e.message); }
+    }
+  }
+  return sayBrowser(text, rate);
+}
+
+async function fetchClip(text) {
+  if (clipCache.has(text)) return clipCache.get(text);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000); // then the browser voice speaks; the server still caches the clip
+  try {
+    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }), signal: ctrl.signal });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
+    const url = URL.createObjectURL(await r.blob());
+    clipCache.set(text, url);
+    return url;
+  } catch (e) {
+    throw e.name === "AbortError" ? new Error("The AI voice took too long.") : e;
+  } finally { clearTimeout(timer); }
+}
+
+async function playAi(text, rate) {
+  const url = await fetchClip(text);
+  return new Promise((res, rej) => {
+    const a = new Audio(url);
+    nowPlaying = a;
+    a.preservesPitch = true;
+    a.playbackRate = Math.max(0.6, Math.min(1.2, rate / 0.95)); // 0.95 = normal, lower = slower practice
+    a.onended = () => { if (nowPlaying === a) nowPlaying = null; res(); };
+    a.onpause = () => res(); // stopped by a newer clip
+    a.onerror = () => rej(new Error("Couldn't play the audio."));
+    a.play().catch(rej);
+  });
+}
+
+function sayBrowser(text, rate) {
   return new Promise((res) => {
     if (!("speechSynthesis" in window)) return res();
     speechSynthesis.cancel();
@@ -337,7 +391,9 @@ async function speakFeedback(d) {
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-say]");
-  if (b) sayMuted(b.dataset.say, +(b.dataset.rate || 0.85));
+  if (!b) return;
+  b.classList.add("busy");
+  sayMuted(b.dataset.say, +(b.dataset.rate || 0.85)).finally(() => b.classList.remove("busy"));
 });
 const sayBtn = (text, label = "🔊", rate) =>
   `<button class="say" data-say="${esc(text)}"${rate ? ` data-rate="${rate}"` : ""} title="Hear it">${label}</button>`;
@@ -941,7 +997,11 @@ async function loadReport() {
 }
 
 // ---------------------------------------------------------------- boot
-api("/api/health").then((h) => { $("#keyWarn").hidden = h.key_configured; }).catch((e) => showError(e.message));
+api("/api/health").then((h) => {
+  $("#keyWarn").hidden = h.key_configured;
+  serverVoice = !!h.ai_voice;
+  if (!serverVoice) $("#voiceSel").value = "browser";
+}).catch((e) => showError(e.message));
 loadToday();
 api("/api/report?day=" + today()).then((r) => { renderFocusLine(r.focus); updateDueBadge(r.practice_due); }).catch(() => {});
 { // deep links: /?tab=practice, /?tab=report&day=2026-11-07

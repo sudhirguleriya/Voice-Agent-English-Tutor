@@ -1,5 +1,6 @@
 """Voice Coach server: receives speech clips from the always-on browser mic and coaches the speaker."""
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import openai
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -80,7 +81,15 @@ def _valid_day(day: str | None) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "key_configured": bool(os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY"))}
+    keyed = bool(os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY"))
+    out = {"ok": True, "key_configured": keyed, "ai_voice": False}
+    if keyed:
+        c = coach()
+        g = lambda k: getattr(c, k, "")
+        out.update(ai_voice=bool(g("tts_model") or g("tts_fallback")),
+                   speech_to_text=[m for m in (g("transcribe_model"), g("transcribe_fallback")) if m],
+                   text_to_speech=[m for m in (g("tts_model"), g("tts_fallback")) if m] + ["browser"])
+    return out
 
 
 @app.post("/api/analyze")
@@ -151,6 +160,39 @@ async def live(req: LiveReq):
     if len(text.split()) < 2:
         return {"fixes": [], "continuations": []}
     return await asyncio.to_thread(coach().live_suggest, text, [c[:300] for c in req.context[-3:]])
+
+
+class TTSReq(BaseModel):
+    text: str
+
+
+TTS_CACHE = ROOT / "data" / "tts_cache"
+
+
+@app.post("/api/tts")
+async def tts(req: TTSReq):
+    """AI voice for a sentence. Cached on disk, so replaying a sentence or word is instant and free.
+    If every AI voice fails the browser falls back to its own voice."""
+    text = " ".join(req.text.split())[:600]
+    if not text:
+        raise HTTPException(400, "Nothing to say.")
+    c = coach()
+    if not (getattr(c, "tts_model", "") or getattr(c, "tts_fallback", "")):
+        raise HTTPException(404, "AI voice is turned off (TTS_MODEL and TTS_FALLBACK are empty).")
+    voices = "|".join(str(getattr(c, k, "")) for k in ("tts_model", "tts_voice", "tts_fallback", "tts_fallback_voice"))
+    key = hashlib.sha1(f"{voices}|{text}".encode()).hexdigest()
+    for ext, mime in (("wav", "audio/wav"), ("mp3", "audio/mpeg")):
+        p = TTS_CACHE / f"{key}.{ext}"
+        if p.exists():
+            return FileResponse(p, media_type=mime, headers={"X-TTS-Model": "cache"})
+    try:
+        data, mime, model = await asyncio.to_thread(c.speak, text)
+    except Exception as e:
+        log.warning("all AI voices failed: %s", e)
+        raise HTTPException(502, "AI voice unavailable. " + friendly(e))
+    TTS_CACHE.mkdir(parents=True, exist_ok=True)
+    (TTS_CACHE / f"{key}.{'wav' if mime == 'audio/wav' else 'mp3'}").write_bytes(data)
+    return Response(data, media_type=mime, headers={"X-TTS-Model": model})
 
 
 @app.get("/api/conversations")

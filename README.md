@@ -59,9 +59,12 @@ Browsers only allow the mic on `localhost` or HTTPS. To use it from your phone, 
 |---|---|---|
 | `OPENAI_API_KEY` | – | set this **or** `OPENROUTER_API_KEY` |
 | `OPENROUTER_API_KEY` | – | use OpenRouter instead; models default to `google/gemini-2.5-flash` (transcription + pronunciation, via audio-input chat) and `openai/gpt-5-mini` (coaching) |
-| `TRANSCRIBE_MODEL` | `gpt-4o-transcribe` | speech to text |
+| `TRANSCRIBE_MODEL` | `gpt-audio-mini` (OpenRouter: `openai/gpt-audio-mini`) | speech to text. Dedicated models (`*transcribe*`, `whisper*` and similar) use the transcription endpoint; others get the audio in a chat request |
 | `COACH_MODEL` | `gpt-5-mini` | grammar, phrasing, vocabulary, daily plan (needs structured outputs) |
 | `PRONUNCIATION_MODEL` | `gpt-4o-audio-preview` | audio pronunciation check; leave empty to turn it off and save cost |
+| `TRANSCRIBE_FALLBACK` | `openai/gpt-4o-mini-transcribe` | used when `TRANSCRIBE_MODEL` fails or is unavailable. On OpenRouter `TRANSCRIBE_MODEL` defaults to `openai/gpt-audio-mini` |
+| `TTS_MODEL` / `TTS_VOICE` | `openai/gpt-audio-mini` / `alloy` | AI voice for the speaker buttons. Its transcript is checked, so a clip where it answers instead of reading is never played |
+| `TTS_FALLBACK` / `TTS_FALLBACK_VOICE` | `fish-audio/s2-pro` / (default voice) | second AI voice (about 0.4 s); after that the browser's own voice. Clips are cached in `data/tts_cache` |
 | `LIVE_MODEL` | `google/gemini-2.5-flash-lite` (OpenRouter) / `gpt-4.1-nano` | fast model for **live suggestions while you speak** (fixes so far + ways to finish the sentence, about 0.7 s, about $0.0001 per call). `openai/gpt-4.1-mini` is a bit more natural but slower. Leave empty to turn it off |
 | `TARGET_LANGUAGE` | `English` | language you're practising |
 

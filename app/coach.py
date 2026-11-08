@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import wave
 
 from openai import OpenAI
 
@@ -90,47 +91,143 @@ class Coach:
         self.openrouter = bool(or_key) and not os.getenv("OPENAI_API_KEY")
         if self.openrouter:
             self.client = OpenAI(api_key=or_key, base_url=os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"))
-            d_tr, d_coach, d_pron = "google/gemini-2.5-flash", "openai/gpt-5-mini", "google/gemini-2.5-flash"
-            d_live = "google/gemini-2.5-flash-lite"
+            d_coach, d_pron, d_live = "openai/gpt-5-mini", "google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"
+            # one model listens and speaks; each job has its own fallback
+            d_tr, d_tr_fb = "openai/gpt-audio-mini", "openai/gpt-4o-mini-transcribe"
+            d_tts, d_tts_voice, d_tts_fb, d_tts_fb_voice = "openai/gpt-audio-mini", "alloy", "fish-audio/s2-pro", ""
         else:
             self.client = OpenAI()  # reads OPENAI_API_KEY (and OPENAI_BASE_URL if set)
-            d_tr, d_coach, d_pron = "gpt-4o-transcribe", "gpt-5-mini", "gpt-4o-audio-preview"
-            d_live = "gpt-4.1-nano"
-        live = os.getenv("LIVE_MODEL")
-        self.live_model = (d_live if live is None else live).strip()  # fast model for suggestions while speaking
+            d_coach, d_pron, d_live = "gpt-5-mini", "gpt-4o-audio-preview", "gpt-4.1-nano"
+            d_tr, d_tr_fb = "gpt-audio-mini", "gpt-4o-mini-transcribe"
+            d_tts, d_tts_voice, d_tts_fb, d_tts_fb_voice = "gpt-audio-mini", "alloy", "gpt-4o-mini-tts", "alloy"
+        env = lambda k, d: (d if os.getenv(k) is None else os.getenv(k)).strip()  # set to empty = turned off
+        self.live_model = env("LIVE_MODEL", d_live)  # fast model for suggestions while speaking
         self.transcribe_model = os.getenv("TRANSCRIBE_MODEL") or d_tr
+        self.transcribe_fallback = env("TRANSCRIBE_FALLBACK", d_tr_fb)
+        self.tts_model, self.tts_voice = env("TTS_MODEL", d_tts), env("TTS_VOICE", d_tts_voice)
+        self.tts_fallback, self.tts_fallback_voice = env("TTS_FALLBACK", d_tts_fb), env("TTS_FALLBACK_VOICE", d_tts_fb_voice)
         self.coach_model = os.getenv("COACH_MODEL") or d_coach
-        pron = os.getenv("PRONUNCIATION_MODEL")
-        self.pron_model = (d_pron if pron is None else pron).strip()
+        self.pron_model = env("PRONUNCIATION_MODEL", d_pron)
         self.language = os.getenv("TARGET_LANGUAGE", "English")
-        # OpenRouter has no /audio/transcriptions endpoint: transcribe with an audio-input chat model instead.
-        mode = os.getenv("TRANSCRIBE_VIA_CHAT", "auto").lower()
-        self.transcribe_via_chat = self.openrouter if mode == "auto" else mode in ("1", "true", "yes")
+        # no retries on the audio path: if a model fails we move straight to its fallback
+        self.fast = self.client.with_options(max_retries=0, timeout=25)
+        self.last_stt_model = None
 
-    # ---------- 1. speech to text ----------
+    # ---------- 1. speech to text (primary, then fallback) ----------
     def transcribe(self, wav: bytes) -> str:
-        if self.transcribe_via_chat:
-            r = self.client.chat.completions.create(
-                model=self.transcribe_model,
+        err = None
+        for model in (self.transcribe_model, self.transcribe_fallback):
+            if not model:
+                continue
+            try:
+                text = self._transcribe_with(model, wav)
+                self.last_stt_model = model
+                return text
+            except Exception as e:  # unavailable, timeout, provider error -> try the next model
+                log.warning("speech-to-text with %s failed: %s", model, e)
+                err = e
+        raise err or RuntimeError("No speech-to-text model configured")
+
+    def _transcribe_with(self, model: str, wav: bytes) -> str:
+        instruction = (f"Transcribe this {self.language} speech verbatim. Keep grammatical mistakes, wrong words, "
+                       "filler words (um, uh, like, you know), false starts and repetitions exactly as spoken. "
+                       "Do NOT correct anything. Output only the transcript text. If there is no speech, output nothing.")
+        if not is_transcription_model(model):  # audio-input chat model (gpt-audio-mini, gemini...)
+            r = self.fast.chat.completions.create(
+                model=model,
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": (
-                        f"Transcribe this {self.language} speech verbatim. Keep grammatical mistakes, wrong words, "
-                        "filler words (um, uh, like, you know), false starts and repetitions exactly as spoken. "
-                        "Do NOT correct anything. Output only the transcript text. If there is no speech, output nothing.")},
+                    {"type": "text", "text": instruction},
                     {"type": "input_audio", "input_audio": {"data": base64.b64encode(wav).decode(), "format": "wav"}},
                 ]}],
             )
             return (r.choices[0].message.content or "").strip().strip('"')
         f = io.BytesIO(wav)
         f.name = "speech.wav"
-        r = self.client.audio.transcriptions.create(
-            model=self.transcribe_model,
-            file=f,
-            language=_lang_code(self.language),
+        r = self.fast.audio.transcriptions.create(
+            model=model, file=f, language=_lang_code(self.language),
             prompt=("Transcribe exactly what is said, verbatim. Keep grammatical mistakes, wrong words, "
                     "filler words (um, uh, like, you know), false starts and repetitions. Do NOT correct anything."),
         )
         return (r.text or "").strip()
+
+    # ---------- text to speech (primary, then fallback; the browser voice is the last resort) ----------
+    def speak(self, text: str) -> tuple[bytes, str, str]:
+        """Returns (audio bytes, mime type, model used)."""
+        errors = []
+        for model, voice in ((self.tts_model, self.tts_voice), (self.tts_fallback, self.tts_fallback_voice)):
+            if not model:
+                continue
+            try:
+                if is_chat_audio_model(model):
+                    try:
+                        return self._speak_chat(model, voice, text, style=0), "audio/wav", model
+                    except ValueError as e:  # it answered instead of reading: one retry with another prompt
+                        log.info("retrying %s with a second prompt style: %s", model, e)
+                        return self._speak_chat(model, voice, text, style=1), "audio/wav", model
+                data = self._speak_endpoint(model, voice, text)
+                if len(data) < 500:
+                    raise ValueError("empty audio")
+                return data, "audio/mpeg", model
+            except Exception as e:
+                log.warning("text-to-speech with %s failed: %s", model, e)
+                errors.append(f"{model}: {e}")
+        raise RuntimeError("; ".join(errors) or "No text-to-speech model configured")
+
+    def _speak_endpoint(self, model: str, voice: str, text: str) -> bytes:
+        """Dedicated TTS model via /audio/speech. Sent directly because some models (Fish Audio) work best
+        with no voice at all, while the SDK always requires one."""
+        import urllib.error
+        import urllib.request
+        body = {"model": model, "input": text, "response_format": "mp3"}
+        if voice:
+            body["voice"] = voice
+        req = urllib.request.Request(
+            str(self.client.base_url).rstrip("/") + "/audio/speech", data=json.dumps(body).encode(),
+            headers={"Authorization": f"Bearer {self.client.api_key}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"{e.code} {e.read().decode(errors='replace')[:200]}") from None
+
+    def _speak_chat(self, model: str, voice: str, text: str, style: int = 0) -> bytes:
+        """Audio-output chat model (gpt-audio-mini). It is a chat model, so for requests like "tell me a joke"
+        it sometimes ANSWERS instead of reading. We check its transcript and reject any clip that isn't the text."""
+        if style == 0:
+            messages = [{"role": "system", "content": (
+                "You are a text-to-speech voice. You never converse. You only read the script you are given "
+                "aloud, exactly, word for word, in a clear, natural, friendly voice, then stop.")},
+                {"role": "user", "content": f'Script:\n"""\n{text}\n"""'}]
+        else:
+            messages = [{"role": "user", "content": f'Say exactly this and nothing else, then stop: "{text}"'}]
+        # NB: no temperature=0 here; audio-output models can loop endlessly at very low temperature
+        stream = self.fast.chat.completions.create(
+            model=model, modalities=["text", "audio"], audio={"voice": voice or "alloy", "format": "pcm16"},
+            stream=True, messages=messages,
+        )
+        # safety stop: a sentence never needs more than ~0.7 s per word (+3 s); 24 kHz * 2 bytes = 48000 B/s
+        max_bytes = int((3 + 0.7 * len(text.split())) * 48000)
+        pcm, said = bytearray(), []
+        for ch in stream:
+            if len(pcm) > max_bytes:
+                stream.close()
+                raise ValueError("audio ran far longer than the sentence")
+            a = getattr(ch.choices[0].delta, "audio", None) if ch.choices else None
+            if not a:
+                continue
+            get = (lambda k: a.get(k)) if isinstance(a, dict) else (lambda k: getattr(a, k, None))
+            if get("data"):
+                pcm += base64.b64decode(get("data"))
+            if get("transcript"):
+                said.append(get("transcript"))
+        if len(pcm) < 4800:
+            raise ValueError("no audio returned")
+        if said and _similar(" ".join(said), text) < 0.85:
+            raise ValueError(f"model did not read the text verbatim (said: {' '.join(said)[:80]!r})")
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000); w.writeframes(bytes(pcm))
+        return buf.getvalue()
 
     # ---------- 2. grammar / phrasing / vocabulary ----------
     def analyze(self, text: str, known_patterns: list[dict], context: list[str] | None = None) -> dict:
@@ -291,6 +388,23 @@ Do not flag acceptable informal spoken style. If the sentence is already correct
                 }}}},
         )
         return json.loads(r.choices[0].message.content)
+
+
+def is_transcription_model(model: str) -> bool:
+    """Dedicated speech-to-text models use /audio/transcriptions; everything else gets audio in a chat request."""
+    return bool(re.search(r"transcribe|whisper|scribe|asr|nova-|parakeet|chirp|stt", model.lower()))
+
+
+def is_chat_audio_model(model: str) -> bool:
+    """Chat models that can answer with audio (as opposed to dedicated /audio/speech TTS models)."""
+    return bool(re.search(r"gpt-audio|audio-preview", model.lower()))
+
+
+def _similar(a: str, b: str) -> float:
+    """Letter-level match, so 'veget able' still equals 'vegetable'."""
+    from difflib import SequenceMatcher
+    letters = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    return SequenceMatcher(None, letters(a), letters(b), autojunk=False).ratio()
 
 
 def _parse_issues(content: str) -> list[dict]:
