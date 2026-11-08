@@ -18,6 +18,21 @@ mistakes per 100 words, score, mistakes by type, your **most repeated mistakes o
 vocabulary upgrades, pronunciation words, and a 14-day trend. **Generate practice plan** writes drill sentences
 built from your own repeated mistakes, plus words to practise pronouncing and new words to start using.
 
+## How it teaches (methods that are known to work)
+| Method | Where in the app |
+|---|---|
+| **You say the correction, not just read it.** Learners who are prompted to self-correct fix more than those who are just shown the answer. | **🎙 Say it** on every live card checks you as you repeat the natural version |
+| **Spaced repetition** (Anki / Duolingo style, 1 → 3 → 7 → 14 → 30 days) | **Practice** tab: your own mistakes come back as flashcards. A wrong answer brings the card back tomorrow |
+| **Retrieval, not re-reading**: you see what you said wrong and recall the fix before seeing it | Practice cards hide the answer until you try (or press *Show answer*) |
+| **Shadowing**: listen, then repeat | 🔊 Listen + 🎙 Say it; the answer is read aloud after two misses |
+| **Focus on a few errors at a time** | "🎯 Watch out today" on Live; **top 3 weak spots** on Progress |
+| **Help at the moment you need it** (while speaking) | Live panel: your words appear as you talk (browser speech recognition, Chrome/Edge). On every short pause it shows "fix as you go" (e.g. *go → went*) and 3 ways to finish your sentence correctly |
+| **Model sentences to copy** (suggested next sentences) | "💬 You could say next" on Live: 2–3 correct sentences that continue your topic and use your weak rules correctly. Press 🎙 to say one. No extra AI call |
+| **See the whole thing, then the model version** | **Conversations** tab: full text of what you said, the corrected version and the better way, sentence by sentence too, plus ✨ *Polish* for one natural retelling. All of it is saved |
+| **Fluency, not only accuracy** | words per minute (natural: 120–160), fillers per 100 words (aim < 2), share of clean sentences |
+
+Checking an attempt costs one transcription call and no AI analysis. Repeating sentences is cheap.
+
 ## Run it
 
 ```bash
@@ -47,6 +62,7 @@ Browsers only allow the mic on `localhost` or HTTPS. To use it from your phone, 
 | `TRANSCRIBE_MODEL` | `gpt-4o-transcribe` | speech to text |
 | `COACH_MODEL` | `gpt-5-mini` | grammar, phrasing, vocabulary, daily plan (needs structured outputs) |
 | `PRONUNCIATION_MODEL` | `gpt-4o-audio-preview` | audio pronunciation check; leave empty to turn it off and save cost |
+| `LIVE_MODEL` | `google/gemini-2.5-flash-lite` (OpenRouter) / `gpt-4.1-nano` | fast model for **live suggestions while you speak** (fixes so far + ways to finish the sentence, about 0.7 s, about $0.0001 per call). `openai/gpt-4.1-mini` is a bit more natural but slower. Leave empty to turn it off |
 | `TARGET_LANGUAGE` | `English` | language you're practising |
 
 ## Cost
