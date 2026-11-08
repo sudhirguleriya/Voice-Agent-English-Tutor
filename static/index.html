@@ -14,9 +14,16 @@
   </div>
   <nav>
     <button class="tab active" data-tab="live">Live</button>
-    <button class="tab" data-tab="report">Daily report</button>
+    <button class="tab" data-tab="convs">Conversations</button>
+    <button class="tab" data-tab="practice">Practice <span id="dueBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="report">Progress</button>
   </nav>
+  <button id="micPill" class="mic-pill" aria-pressed="false" title="Start / stop listening">
+    <span class="dot"></span><span id="micPillText">Mic off</span>
+  </button>
 </header>
+
+<div id="banner" class="banner" role="alert" hidden></div>
 
 <main>
   <!-- LIVE -->
@@ -29,6 +36,7 @@
         <div id="status" class="status">Press the mic to start. It keeps listening until you stop it.</div>
         <div class="meter"><div id="level"></div><div id="thresh"></div></div>
         <div class="settings">
+          <label title="Shows fixes and ways to finish your sentence while you are still speaking (Chrome/Edge)"><input type="checkbox" id="liveToggle"> Live suggestions while I speak</label>
           <label><input type="checkbox" id="speakToggle"> Speak corrections aloud</label>
           <label>Pause before analysing
             <input type="range" id="silence" min="600" max="2500" step="100" value="1100">
@@ -38,14 +46,59 @@
       </div>
     </div>
 
-    <div class="today-strip">
-      <div><b id="tUtt">0</b><span>sentences today</span></div>
-      <div><b id="tMis">0</b><span>mistakes</span></div>
-      <div><b id="tRate">–</b><span>mistakes / 100 words</span></div>
-      <div><b id="tScore">–</b><span>avg score</span></div>
+    <div id="livePanel" class="live-panel" hidden>
+      <div class="lp-head"><span class="live-dot"></span><span class="label">Live: you're saying</span><span id="lpState" class="muted"></span></div>
+      <div id="lpText" class="lp-text"><span class="muted">Start speaking. Your words appear here as you talk…</span></div>
+      <div id="lpFix" class="lp-fix"></div>
+      <div id="lpCont" class="lp-cont"></div>
     </div>
 
-    <div id="feed" class="feed"><p class="empty">Your sentences and feedback will appear here.</p></div>
+    <div id="focusLine" class="focus-line" hidden></div>
+
+    <div id="nextBox" class="next-box"></div>
+
+    <div class="today-strip">
+      <div><b id="tUtt">0</b><span>sentences</span></div>
+      <div><b id="tRate">–</b><span>mistakes / 100 words</span></div>
+      <div><b id="tScore">–</b><span>avg score</span></div>
+      <div><b id="tWpm">–</b><span>words / min</span></div>
+      <div><b id="tFill">0</b><span>filler words</span></div>
+    </div>
+
+    <div id="feed" class="feed">
+      <div class="empty">
+        <p><b>How to use it</b></p>
+        <ol>
+          <li>Press the mic and talk about anything: your day, your work, a plan.</li>
+          <li>After each sentence you get the fix and a more natural way to say it.</li>
+          <li>Press <b>🎙 Say it</b> and repeat the natural version. Saying it yourself is what makes it stick.</li>
+          <li>Open <b>Practice</b> each day. Your own mistakes come back as flashcards until you've mastered them.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONVERSATIONS -->
+  <section id="convs" class="panel">
+    <div class="report-head">
+      <label>Day <input type="date" id="convDay"></label>
+      <button id="refreshConvs">Refresh</button>
+      <span class="muted">A new conversation starts each time you turn on the mic, or after a 10-minute break.</span>
+    </div>
+    <div id="convBody"></div>
+  </section>
+
+  <!-- PRACTICE -->
+  <section id="practice" class="panel">
+    <div class="practice-head">
+      <div>
+        <h2>Practise your own mistakes</h2>
+        <p class="muted">You see a sentence you said wrong and say the correct version out loud. A correct answer
+          pushes the card's next review further out (1 → 3 → 7 → 14 → 30 days). A wrong one brings it back tomorrow.</p>
+      </div>
+      <div id="deckStats" class="deck-stats"></div>
+    </div>
+    <div id="practiceBody"></div>
   </section>
 
   <!-- REPORT -->
@@ -53,7 +106,6 @@
     <div class="report-head">
       <label>Day <input type="date" id="reportDay"></label>
       <button id="refreshReport">Refresh</button>
-      <button id="planBtn" class="primary">Generate practice plan</button>
     </div>
     <div id="reportBody"></div>
   </section>

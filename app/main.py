@@ -7,15 +7,18 @@ from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+import openai
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 from .coach import Coach  # noqa: E402
 from .db import DB, normalize_pattern  # noqa: E402
+from .practice import INTERVALS, compare  # noqa: E402
 from .report import build_report  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -29,6 +32,35 @@ HALLUCINATIONS = {"thank you", "thanks for watching", "thank you for watching", 
                   "subtitles by the amara.org community", "please subscribe"}
 
 app = FastAPI(title="Voice Coach")
+
+
+def friendly(e: Exception) -> str:
+    """Turn provider errors into a message the user can act on."""
+    status = getattr(e, "status_code", None)
+    if status == 401 or isinstance(e, openai.AuthenticationError):
+        return ("The AI provider rejected your API key (expired, revoked or wrong). "
+                "Put a valid key in .env and restart the server.")
+    if status == 402:
+        return "Your AI provider account is out of credit, or the key reached its spending limit."
+    if status == 403:
+        return "The API key is not allowed to use this model. Check the model names in .env."
+    if status == 429:
+        return "Rate limited by the AI provider. Wait a few seconds and try again."
+    if isinstance(e, openai.APIConnectionError):
+        return "Could not reach the AI provider. Check your internet connection."
+    return f"AI request failed: {e}"
+
+
+@app.exception_handler(openai.OpenAIError)
+async def _openai_error(request: Request, e: openai.OpenAIError):
+    log.error("provider error on %s: %s", request.url.path, e)
+    return JSONResponse({"detail": friendly(e)}, status_code=502)
+
+
+@app.exception_handler(Exception)
+async def _any_error(request: Request, e: Exception):
+    log.exception("unhandled error on %s", request.url.path)
+    return JSONResponse({"detail": f"Server error: {e}"}, status_code=500)
 
 
 def coach() -> Coach:
@@ -52,7 +84,8 @@ def health():
 
 
 @app.post("/api/analyze")
-async def analyze(audio: UploadFile = File(...), day: str = Form(None)):
+async def analyze(audio: UploadFile = File(...), day: str = Form(None), duration_ms: int = Form(None),
+                  conversation_id: int = Form(None), new_conversation: int = Form(0)):
     day = _valid_day(day)
     wav = await audio.read()
     if len(wav) < 8000:  # < ~0.25 s at 16 kHz
@@ -63,20 +96,22 @@ async def analyze(audio: UploadFile = File(...), day: str = Form(None)):
         text = await asyncio.to_thread(c.transcribe, wav)
     except Exception as e:
         log.exception("transcription failed")
-        raise HTTPException(502, f"Transcription failed: {e}")
+        raise HTTPException(502, "Transcription failed. " + friendly(e))
 
     norm = re.sub(r"[^a-z ]", "", text.lower()).strip()
     if not norm or norm in HALLUCINATIONS or len(norm.split()) < 2:
         return {"skipped": "no speech", "text": text}
 
     # grammar analysis and audio pronunciation check run in parallel
+    ts = datetime.now().isoformat(timespec="seconds")
+    conv = db.resolve_conversation(day=day, ts=ts, conversation_id=conversation_id, new=bool(new_conversation))
     known = db.known_patterns()
-    analysis_t = asyncio.to_thread(c.analyze, text, known)
+    analysis_t = asyncio.to_thread(c.analyze, text, known, db.conversation_texts(conv, limit=4))
     pron_t = asyncio.to_thread(c.pronunciation, wav, text)
     analysis, pron = await asyncio.gather(analysis_t, pron_t, return_exceptions=True)
     if isinstance(analysis, Exception):
         log.error("analysis failed: %s", analysis)
-        raise HTTPException(502, f"Analysis failed: {analysis}")
+        raise HTTPException(502, "Analysis failed. " + friendly(analysis))
     if isinstance(pron, Exception):
         log.warning("pronunciation pass failed (continuing without it): %s", pron)
         pron = []
@@ -90,15 +125,78 @@ async def analyze(audio: UploadFile = File(...), day: str = Form(None)):
 
     pronunciation = _merge_pronunciation(list(pron), analysis.get("pronunciation_suspects", []))
 
-    uid = db.save_analysis(ts=datetime.now().isoformat(timespec="seconds"), day=day, text=text,
-                           analysis=analysis, pronunciation=pronunciation)
+    dur = duration_ms if duration_ms and 300 < duration_ms < 60000 else None
+    analysis["next_suggestions"] = [s.strip() for s in (analysis.get("next_suggestions") or []) if s.strip()][:3]
+    uid = db.save_analysis(ts=ts, day=day, text=text, analysis=analysis, pronunciation=pronunciation,
+                           duration_ms=dur, conversation_id=conv)
 
     # tell the user which mistakes are repeats
     repeat_counts = {r["pattern"]: r["n"] for r in db.known_patterns(limit=500)}
     for m in analysis["mistakes"]:
         m["times_seen"] = repeat_counts.get(normalize_pattern(m["pattern"]), 1)
 
-    return {"id": uid, "day": day, "text": text, **analysis, "pronunciation": pronunciation}
+    return {"id": uid, "day": day, "ts": ts, "text": text, "word_count": len(text.split()), "duration_ms": dur,
+            "conversation_id": conv, **analysis, "pronunciation": pronunciation}
+
+
+class LiveReq(BaseModel):
+    text: str
+    context: list[str] = []
+
+
+@app.post("/api/live")
+async def live(req: LiveReq):
+    """Suggestions while the user is still speaking: fixes so far + ways to finish the sentence."""
+    text = " ".join(req.text.split())[:400]
+    if len(text.split()) < 2:
+        return {"fixes": [], "continuations": []}
+    return await asyncio.to_thread(coach().live_suggest, text, [c[:300] for c in req.context[-3:]])
+
+
+@app.get("/api/conversations")
+def conversations(day: str | None = None):
+    return db.conversations_for_day(_valid_day(day))
+
+
+@app.post("/api/conversation/{cid}/polish")
+async def polish(cid: int):
+    texts = db.conversation_texts(cid)
+    if not texts:
+        raise HTTPException(404, "That conversation has no sentences.")
+    out = await asyncio.to_thread(coach().polish_conversation, texts)
+    db.set_polished(cid, datetime.now().isoformat(timespec="seconds"), out)
+    return out
+
+
+@app.post("/api/attempt")
+async def attempt(audio: UploadFile = File(...), target: str = Form(...), must: str = Form(""),
+                  pattern: str = Form(""), grade: int = Form(0), day: str = Form(None)):
+    """User repeats a target sentence (shadowing / practice card). Transcribe and compare; no AI analysis."""
+    day = _valid_day(day)
+    wav = await audio.read()
+    if len(wav) < 8000:
+        return {"skipped": "too short"}
+    try:
+        said = await asyncio.to_thread(coach().transcribe, wav)
+    except Exception as e:
+        log.exception("attempt transcription failed")
+        raise HTTPException(502, "Transcription failed. " + friendly(e))
+    norm = re.sub(r"[^a-z ]", "", said.lower()).strip()
+    if not norm or norm in HALLUCINATIONS:
+        return {"skipped": "no speech", "said": said}
+    res = compare(target, said, must)
+    sched = db.record_attempt(ts=datetime.now().isoformat(timespec="seconds"), day=day, pattern=pattern,
+                              target=target, said=said, similarity=res["similarity"], passed=res["passed"],
+                              grade=bool(grade))
+    if sched:
+        sched["interval_days"] = INTERVALS[sched["box"]] if res["passed"] else 0
+    return {"said": said, "target": target, **res, "schedule": sched}
+
+
+@app.get("/api/practice")
+def practice(day: str | None = None):
+    day = _valid_day(day)
+    return {"day": day, "cards": db.practice_cards(day), "stats": db.mastery_stats()}
 
 
 def _fallback_pattern(m: dict) -> str:
