@@ -116,6 +116,8 @@ mark { background: var(--bad-bg); color: var(--bad); border-radius: 3px; padding
 .chip.good { background: var(--good-bg); color: var(--good); border-color: transparent; font-weight: 600; }
 .tip { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .say { padding: 0 7px; font-size: 13px; }
+.say.busy { opacity: .6; animation: blink 1s infinite; }
+.settings select { font: inherit; padding: 1px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
 .verdict { font-weight: 700; }
 .verdict.pass { color: var(--good); } .verdict.fail { color: var(--bad); }
 .heard { margin: 4px 0; line-height: 1.7; }
