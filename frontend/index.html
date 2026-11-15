@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Coach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= SIDEBAR ================= -->
+  <nav class="nav" aria-label="Main">
+    <a class="brand" href="#live">
+      <span class="logo"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></span>
+      <span class="brand-text"><b>Voice Coach</b><small>Speak better English</small></span>
+    </a>
+    <div class="nav-links">
+      <a href="#live" data-nav="live">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+        Live<span class="rec-dot" data-rec="live" hidden></span></a>
+      <a href="#practice" data-nav="practice">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+        Practice<span class="rec-dot" data-rec="practice" hidden></span></a>
+      <a href="#sessions" data-nav="sessions">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Sessions</a>
+      <a href="#focus" data-nav="focus">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+        My Focus Areas</a>
+    </div>
+    <div class="nav-foot">
+      <div class="mic-card">
+        <span class="eyebrow-sm">Microphone</span>
+        <span id="micName" class="mic-name">Default microphone</span>
+        <span id="micState" class="mic-state"><span class="dot"></span><span>Ready</span></span>
+      </div>
+      <button id="settingsBtn" type="button" class="nav-btn">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        Settings</button>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div class="wrap">
+      <div id="banner" class="banner" role="alert" hidden></div>
+
+      <!-- ================= LIVE ================= -->
+      <section id="view-live" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <span class="eyebrow">Live session</span>
+            <h1>Listening to your conversation</h1>
+            <p class="sub">Speak naturally. Corrections and ideas appear on the right as you talk.</p>
+          </div>
+          <div class="keys"><kbd>Space</kbd> start / pause <kbd>E</kbd> end &amp; review</div>
+        </header>
+
+        <section class="card controls" aria-label="Session controls">
+          <button id="liveMic" type="button" class="mic-btn" aria-label="Start listening">
+            <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+          </button>
+          <div class="state">
+            <span class="state-main"><span class="dot" id="liveDot"></span><span id="liveStatus">Ready to listen</span></span>
+            <span class="state-sub" id="liveSub">Press the mic or Space to start</span>
+          </div>
+          <div class="wave" id="liveWave" aria-hidden="true"></div>
+          <span class="clock" id="liveTimer">00:00</span>
+          <div class="ctl-btns">
+            <button id="livePause" type="button" class="btn" hidden>
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg><span>Pause</span></button>
+            <button id="liveEnd" type="button" class="btn dark" hidden>
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>End &amp; review</button>
+          </div>
+        </section>
+
+        <div class="cols">
+          <section class="card col-main" aria-labelledby="tr-h">
+            <div class="card-head"><h2 id="tr-h">Transcript</h2><span class="meta" id="liveMeta"></span></div>
+            <div class="transcript" id="liveTranscript"></div>
+          </section>
+          <div class="col-side">
+            <section class="card" aria-labelledby="sg-h1">
+              <div class="card-head"><span class="ico ico-indigo"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span><h2 id="sg-h1">Suggestions</h2></div>
+              <div class="sugg" id="liveSuggestions"></div>
+            </section>
+            <section class="card" aria-labelledby="mk-h1">
+              <div class="card-head"><span class="ico ico-orange"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></span><h2 id="mk-h1">Mistakes</h2><span class="badge" id="liveCount" hidden>0</span></div>
+              <div class="mistakes" id="liveMistakes"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PRACTICE ================= -->
+      <section id="view-practice" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <span class="eyebrow">Practice</span>
+            <h1>Practise with an AI partner</h1>
+            <p class="sub">Pick a topic. Your partner speaks first and keeps replies short, so you do most of the talking.</p>
+          </div>
+        </header>
+
+        <section class="card pad" aria-labelledby="tp-h" id="topicCard">
+          <div class="topic-head">
+            <h2 id="tp-h">Choose a topic</h2>
+            <span class="steer" id="steer"></span>
+          </div>
+          <div class="chips" id="topicChips"></div>
+          <div class="field">
+            <label for="ownTopic">Or type your own topic</label>
+            <input id="ownTopic" type="text" maxlength="200" placeholder="e.g. Explaining my project to a new colleague">
+          </div>
+        </section>
+
+        <div class="cols">
+          <section class="card col-main convo" aria-labelledby="cv-h">
+            <div class="card-head">
+              <div class="stack"><h2 id="cv-h">Conversation</h2><span class="meta" id="prTopic">No topic yet</span></div>
+              <span class="pill" id="prPill" hidden><span class="dot live"></span>In progress</span>
+            </div>
+            <div class="bubbles" id="prTranscript"></div>
+            <div class="convo-bar">
+              <button id="prMic" type="button" class="mic-btn sm" aria-label="Start conversation">
+                <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+              </button>
+              <div class="state">
+                <span class="state-main sm" id="prStatus">Ready when you are</span>
+                <span class="state-sub" id="prSub">Press the mic or Space to start</span>
+              </div>
+              <div class="wave sm" id="prWave" aria-hidden="true"></div>
+              <span class="clock sm" id="prTimer">00:00</span>
+              <button id="prPause" type="button" class="btn" hidden>
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg><span>Pause</span></button>
+              <button id="prEnd" type="button" class="btn dark" hidden>
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>End &amp; review</button>
+            </div>
+          </section>
+          <div class="col-side">
+            <section class="card" aria-labelledby="sg-h2">
+              <div class="card-head"><span class="ico ico-indigo"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span><h2 id="sg-h2">Suggestions</h2></div>
+              <div class="sugg" id="prSuggestions"></div>
+            </section>
+            <section class="card" aria-labelledby="mk-h2">
+              <div class="card-head"><span class="ico ico-orange"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></span><h2 id="mk-h2">Mistakes</h2><span class="badge" id="prCount" hidden>0</span></div>
+              <div class="mistakes" id="prMistakes"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SESSIONS ================= -->
+      <section id="view-sessions" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <span class="eyebrow">History</span>
+            <h1>Sessions</h1>
+            <p class="sub">Review what you said, and how to say it better.</p>
+          </div>
+          <div class="head-tools">
+            <label for="sSearch" class="sr-only">Search sessions</label>
+            <div class="search">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+              <input id="sSearch" type="search" placeholder="Search sessions">
+            </div>
+            <div class="seg" role="group" aria-label="Filter by mode" id="sFilter">
+              <button type="button" aria-pressed="true" data-mode="all">All</button>
+              <button type="button" aria-pressed="false" data-mode="live">Live</button>
+              <button type="button" aria-pressed="false" data-mode="practice">Practice</button>
+            </div>
+          </div>
+        </header>
+        <div class="cols">
+          <section class="card session-list" aria-label="Session list" id="sessionList"></section>
+          <section class="col-detail" id="sessionDetail" aria-live="polite"></section>
+        </div>
+      </section>
+
+      <!-- ================= FOCUS AREAS ================= -->
+      <section id="view-focus" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <span class="eyebrow">Your patterns</span>
+            <h1>My Focus Areas</h1>
+            <p class="sub" id="focusMeta">Loading…</p>
+          </div>
+          <button id="analyseBtn" type="button" class="btn primary">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Analyse my history</span></button>
+        </header>
+        <div class="tiles" id="focusTiles"></div>
+        <div class="cols">
+          <section class="col-main focus-list" aria-labelledby="fa-h" id="focusList"></section>
+          <div class="col-side" id="focusSide"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- ================= SETTINGS ================= -->
+<dialog id="settings" aria-labelledby="set-h">
+  <form method="dialog" class="dialog-x"><button class="icon-btn" aria-label="Close">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
+  <span class="eyebrow">Settings</span>
+  <h2 id="set-h">Your voice</h2>
+  <p class="sub">When you talk with other people, Voice Coach only checks <b>your</b> sentences. It recognises you from a
+    short recording. This runs on your laptop; the recording isn't sent anywhere else.</p>
+  <div id="voiceStatus" class="note"></div>
+  <div id="enrollBox" class="enroll" hidden>
+    <p class="sub">Read this aloud at a normal pace:</p>
+    <blockquote>I usually start my day with a cup of tea. Then I check my messages and plan my work.
+      In the evening I like to walk, cook dinner, and talk with my family about our day.</blockquote>
+    <div class="bar"><i id="enrollLevel"></i></div>
+    <p id="enrollMsg" class="sub"></p>
+  </div>
+  <div class="row">
+    <button id="enrollBtn" type="button" class="btn primary">Record my voice</button>
+    <label class="check"><input type="checkbox" id="voiceEnabled"> Only check my voice</label>
+    <button id="voiceDelete" type="button" class="btn ghost danger" hidden>Delete voice profile</button>
+  </div>
+</dialog>
+
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

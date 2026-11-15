@@ -1,76 +1,101 @@
-# Voice Coach — always-listening speaking coach
+# Voice Coach
 
-| Live feedback | Daily report |
-|---|---|
-| ![live](docs/live.png) | ![report](docs/report.png) |
+An always-on English speaking coach that runs on your laptop. It listens while you practise alone, while you
+talk with an AI voice partner, or while you talk to real people. It helps you in real time and over time.
 
-Keep the page open, press the mic once, and just talk. Every time you finish a sentence, the coach:
+- **Live**: one button (or <kbd>Space</kbd>) starts listening. You see a live transcript, a **Suggestions** panel
+  (better phrasing, stronger words, what you could say next) and a **Mistakes** panel (each mistake with a short
+  fix). While you are still mid-sentence, quick hints appear too.
+- **Practice**: pick a topic and talk with an AI partner who speaks back. It keeps its replies short, naturally
+  repeats your mistakes back in the correct form, and steers the talk towards your weak spots.
+- **Summary** when you press Stop: your full transcript, a clean corrected paragraph ("what you should have
+  said"), the key lessons, and every mistake (original, corrected, type, explanation).
+- **My Focus Areas**: the pattern engine finds your recurring mistakes across all sessions, shows examples
+  from your own speech and short drills, and tracks progress (mistakes per 100 words, fillers, speaking speed).
+- **Only your voice is graded**: record a 20-second voice sample once (⚙ Settings). Other people in the room
+  are shown greyed out and are not checked. This runs locally.
 
-1. **Transcribes exactly what you said**, mistakes and filler words included (`gpt-4o-transcribe`).
-2. **Corrects your grammar**, explains each mistake in one line, and shows a **more natural way to say it**.
-3. **Suggests stronger vocabulary** for plain or overused words (good, nice, thing…).
-4. **Checks pronunciation** by listening to the actual audio (`gpt-4o-audio-preview`). It also flags words the transcriber misheard, which usually means they were mispronounced. Press 🔊 to hear the correct pronunciation.
-5. **Tracks repeated mistakes.** Each mistake gets a stable pattern name (e.g. "third person -s (he go -> he goes)"), so the same mistake is counted again each time you make it. Repeats get a red "repeated ×N" chip.
+## Setup (Windows, macOS, Linux)
 
-The **Daily report** tab compares today with yesterday:
-mistakes per 100 words, score, mistakes by type, your **most repeated mistakes of all time**, mistakes you are
-**still making**, mistakes you **fixed**, new mistakes, filler words (um, like, basically…), overused words,
-vocabulary upgrades, pronunciation words, and a 14-day trend. **Generate practice plan** writes drill sentences
-built from your own repeated mistakes, plus words to practise pronouncing and new words to start using.
-
-## How it teaches (methods that are known to work)
-| Method | Where in the app |
-|---|---|
-| **You say the correction, not just read it.** Learners who are prompted to self-correct fix more than those who are just shown the answer. | **🎙 Say it** on every live card checks you as you repeat the natural version |
-| **Spaced repetition** (Anki / Duolingo style, 1 → 3 → 7 → 14 → 30 days) | **Practice** tab: your own mistakes come back as flashcards. A wrong answer brings the card back tomorrow |
-| **Retrieval, not re-reading**: you see what you said wrong and recall the fix before seeing it | Practice cards hide the answer until you try (or press *Show answer*) |
-| **Shadowing**: listen, then repeat | 🔊 Listen + 🎙 Say it; the answer is read aloud after two misses |
-| **Focus on a few errors at a time** | "🎯 Watch out today" on Live; **top 3 weak spots** on Progress |
-| **Help at the moment you need it** (while speaking) | Live panel: your words appear as you talk (browser speech recognition, Chrome/Edge). On every short pause it shows "fix as you go" (e.g. *go → went*) and 3 ways to finish your sentence correctly |
-| **Model sentences to copy** (suggested next sentences) | "💬 You could say next" on Live: 2–3 correct sentences that continue your topic and use your weak rules correctly. Press 🎙 to say one. No extra AI call |
-| **See the whole thing, then the model version** | **Conversations** tab: full text of what you said, the corrected version and the better way, sentence by sentence too, plus ✨ *Polish* for one natural retelling. All of it is saved |
-| **Fluency, not only accuracy** | words per minute (natural: 120–160), fillers per 100 words (aim < 2), share of clean sentences |
-
-Checking an attempt costs one transcription call and no AI analysis. Repeating sentences is cheap.
-
-## Run it
+Needs Python 3.11+ and Chrome or Edge.
 
 ```bash
-cd voice-coach
+python -m venv .venv
+.venv\Scripts\activate          # Windows (PowerShell: .\.venv\Scripts\Activate.ps1)
+# source .venv/bin/activate     # macOS / Linux
 pip install -r requirements.txt
-cp .env.example .env        # then put your OPENAI_API_KEY in .env
+cp .env.example .env            # Windows: copy .env.example .env
+```
+
+Put your key in `.env` (`OPENROUTER_API_KEY=...` or `OPENAI_API_KEY=...`), then:
+
+```bash
 uvicorn app.main:app --port 8000
 ```
 
-Open **http://localhost:8000** in Chrome or Edge, press the mic, and allow microphone access.
-Browsers only allow the mic on `localhost` or HTTPS. To use it from your phone, serve it over HTTPS.
+Open **http://localhost:8000**, press **Start listening**, and allow the microphone. Browsers only allow the mic
+on `localhost` or HTTPS.
 
-## How "always listening" works
-- The browser keeps the mic open and runs voice-activity detection that adapts to the noise in your room. The
-  yellow mark on the level bar is the speaking threshold.
-- When you pause (default 1.1 s, adjustable), that sentence is sent as a 16 kHz WAV. Silence is never uploaded.
-- With **Speak corrections aloud** on, the coach reads the better version back to you. It mutes the mic while it
-  speaks, so it doesn't coach its own voice.
-- Delete a card with ✕ if it caught someone else (TV, another person). It is then removed from your stats.
-- History is stored locally in `data/coach.db` (SQLite). Your API key stays on the server.
+Tests (no key or network needed; every AI call is faked):
 
-## Settings (`.env`)
-| Variable | Default | Purpose |
+```bash
+python -m pytest -q
+```
+
+## How it works
+
+```
+browser (frontend/)                                 server (app/)
+  mic → voice-activity detection ── WAV per sentence ──►  /ws/session ─► audio/stt     (speech to text)
+  browser recognition (instant partial words) ─ partial ─►               audio/speaker  (is it me?)
+                                                                         analysis/live  (mistakes + suggestions)
+  transcript · Suggestions · Mistakes  ◄────── JSON events ──────────    practice_agent (partner reply + voice)
+                                                                         summary        (on Stop)
+                                                                         patterns       (after sessions / on demand)
+                                                                         storage        (SQLite via SQLAlchemy)
+```
+
+- **Live = one sentence at a time.** The browser cuts audio at each pause (adjusts to room noise) and sends
+  that sentence over the WebSocket. The server transcribes it (about 1 s) and runs one structured-JSON analysis
+  for both panels, so it stays fast and cheap. Silence is never sent.
+- **Two transcripts.** The words you see while you talk come from the browser's own recognizer (instant, free).
+  The text that is stored and graded comes from the speech-to-text model, because browser recognition quietly
+  fixes grammar and would hide your mistakes.
+- **Streaming STT.** The configured models are request/response per sentence. A true streaming provider can be
+  added by implementing `STTProvider` in `app/audio/stt.py`; nothing else changes.
+- **Safety nets.** A chat model used for speech to text sometimes answers you instead of transcribing; such
+  replies are detected and rejected. A transcript in the wrong alphabet (a model that translated) is retried.
+  Known "phantom" phrases from silence ("Thank you.") are dropped.
+
+## Modules
+
+| Module | Responsibility |
+|---|---|
+| `app/audio/stt.py` | swappable speech-to-text providers, fallback chain, guards |
+| `app/audio/speaker.py` | local voice match (sherpa-onnx, WeSpeaker CAM++ model, about 28 MB, downloaded on first use) |
+| `app/analysis/` | per-sentence mistakes + suggestions (strict JSON schema), live hints, output validation |
+| `app/summary/` | end-of-session corrected paragraph and key points |
+| `app/patterns/` | pattern engine (aggregate → LLM → Focus Areas + drills + agent hints), progress numbers |
+| `app/practice_agent/` | AI conversation partner (speaks with its own voice), topics, text to speech + cache |
+| `app/storage/` | SQLAlchemy models (sessions, utterances, mistakes, focus areas, drills, voice profile) |
+| `app/api/` | WebSocket session protocol (`ws.py`, documented at the top) and REST routes |
+| `frontend/` | plain HTML + ES-module JavaScript, no build step |
+
+## Models (defaults, all configurable in `.env`)
+
+| Job | Default (OpenRouter) | Why |
 |---|---|---|
-| `OPENAI_API_KEY` | – | set this **or** `OPENROUTER_API_KEY` |
-| `OPENROUTER_API_KEY` | – | use OpenRouter instead; models default to `google/gemini-2.5-flash` (transcription + pronunciation, via audio-input chat) and `openai/gpt-5-mini` (coaching) |
-| `TRANSCRIBE_MODEL` | `gpt-audio-mini` (OpenRouter: `openai/gpt-audio-mini`) | speech to text. Dedicated models (`*transcribe*`, `whisper*` and similar) use the transcription endpoint; others get the audio in a chat request |
-| `COACH_MODEL` | `gpt-5-mini` | grammar, phrasing, vocabulary, daily plan (needs structured outputs) |
-| `PRONUNCIATION_MODEL` | `gpt-4o-audio-preview` | audio pronunciation check; leave empty to turn it off and save cost |
-| `TRANSCRIBE_FALLBACK` | `openai/gpt-4o-mini-transcribe` | used when `TRANSCRIBE_MODEL` fails or is unavailable. On OpenRouter `TRANSCRIBE_MODEL` defaults to `openai/gpt-audio-mini` |
-| `TTS_MODEL` / `TTS_VOICE` | `openai/gpt-audio-mini` / `alloy` | AI voice for the speaker buttons. Its transcript is checked, so a clip where it answers instead of reading is never played |
-| `TTS_FALLBACK` / `TTS_FALLBACK_VOICE` | `fish-audio/s2-pro` / (default voice) | second AI voice (about 0.4 s); after that the browser's own voice. Clips are cached in `data/tts_cache` |
-| `LIVE_MODEL` | `google/gemini-2.5-flash-lite` (OpenRouter) / `gpt-4.1-nano` | fast model for **live suggestions while you speak** (fixes so far + ways to finish the sentence, about 0.7 s, about $0.0001 per call). `openai/gpt-4.1-mini` is a bit more natural but slower. Leave empty to turn it off |
-| `TARGET_LANGUAGE` | `English` | language you're practising |
+| Speech to text | `openai/gpt-4o-mini-transcribe` → `openai/gpt-audio-mini` | keeps your mistakes and fillers word for word, about 0.9 s |
+| Mistakes + suggestions, summary, patterns | `openai/gpt-5-mini` (low reasoning effort) | reliable structured JSON |
+| Hints while you speak | `google/gemini-2.5-flash-lite` | about 0.7 s |
+| Practice partner | `openai/gpt-audio-mini` (voice "alloy") | one call returns the reply already spoken |
+| Speaker buttons | `openai/gpt-audio-mini` → `fish-audio/s2-pro` → browser voice | clips are cached in `data/tts_cache` |
+
+Data lives in `data/voice_coach.db` (SQLite). Nothing is uploaded except the audio and text sent to the AI
+provider you configured.
 
 ## Cost
-Each sentence costs one transcription call, one text call, and, if enabled, one audio call. For long
-always-on sessions, turn the pronunciation pass off or use cheaper models.
 
-## Tests
-`python tests/test_pipeline.py` runs the whole server pipeline and the day-over-day report with OpenAI mocked out.
+Each sentence costs one transcription and one analysis call; hints add a few tiny calls while you speak (turn
+off with `HINT_MODEL=`). Practice adds one voice reply per turn. The pattern engine runs at most about once a
+day automatically, or when you press **Analyse my history**.
