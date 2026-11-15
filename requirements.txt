@@ -1,5 +1,10 @@
 fastapi>=0.110
-uvicorn>=0.29
-openai>=1.40
+uvicorn[standard]>=0.29      # [standard] adds the WebSocket support
+openai>=1.40                 # OpenAI SDK, also used for OpenRouter
 python-dotenv>=1.0
-python-multipart>=0.0.9
+python-multipart>=0.0.9      # voice-profile upload
+sqlalchemy>=2.0
+numpy>=1.26
+sherpa-onnx>=1.10            # local voice match (speaker embeddings); the model downloads on first use
+pytest>=8.0                  # tests
+httpx>=0.27                  # FastAPI TestClient
